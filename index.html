@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Army Runner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #000000;
+            color: #ffffff;
+            image-rendering: pixelated;
+        }
+
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+
+        canvas {
+            background-color: transparent;
+            display: block;
+            width: 100%;
+            max-width: 600px;
+            height: 100%;
+            max-height: 800px;
+            border: 4px solid #ffffff;
+            box-sizing: border-box;
+            cursor: none;
+            position: relative;
+            z-index: 2; /* Put canvas on top of background */
+        }
+
+        #game-background {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            max-width: 600px;
+            height: 100%;
+            max-height: 800px;
+            z-index: 1; /* Place behind canvas */
+            object-fit: cover;
+            filter: brightness(0.5); /* Make it darker so text is visible */
+        }
+
+        #game-info {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            border: 2px solid #ffffff;
+            padding: 8px 16px;
+            z-index: 100;
+        }
+        
+        #game-over-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            background-color: rgba(0, 0, 0, 0.9);
+            border: 4px solid #ffffff;
+            padding: 40px;
+            text-align: center;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-family: 'Press Start 2P', cursive;
+            color: #000000;
+            background-color: #00ff00;
+            border: 2px solid #ffffff;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            margin-top: 20px;
+        }
+
+        .button:hover {
+            background-color: #ffffff;
+        }
+
+        .game-stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        @media (max-width: 640px) {
+            .game-container {
+                height: 100vh;
+            }
+            canvas {
+                width: 100%;
+                height: 100%;
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+<body class="bg-black text-white flex items-center justify-center min-h-screen">
+    <div class="game-container">
+        <img id="game-background" src="Back.png" alt="Game Background">
+        <div id="game-info">
+            <div class="game-stats">
+                <h2 class="text-xl font-bold">ARMY: <span id="army-size">1</span></h2>
+                <h2 class="text-xl font-bold">SCORE: <span id="score">100</span></h2>
+            </div>
+            <div id="status-message" class="text-sm text-green-400">Choose your path!</div>
+            <h2 class="text-md font-bold mt-2">TIME: <span id="time-survived">0s</span></h2>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="game-over-screen" class="hidden">
+            <h1 class="text-3xl font-bold mb-4">GAME OVER!</h1>
+            <p class="text-lg mb-4" id="final-stats">FINAL ARMY: 1<br>FINAL SCORE: 100<br>TIME SURVIVED: 0s</p>
+            <button id="restart-button" class="button">RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const armySizeEl = document.getElementById('army-size');
+        const scoreEl = document.getElementById('score');
+        const timeEl = document.getElementById('time-survived');
+        const statusMessageEl = document.getElementById('status-message');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalStatsEl = document.getElementById('final-stats');
+        const restartButton = document.getElementById('restart-button');
+        const backgroundEl = document.getElementById('game-background');
+        
+        // Game State Variables
+        let player = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            armySize: 1,
+            speed: 5
+        };
+
+        let goodItems = [];
+        let badItems = [];
+
+        let isGameOver = false;
+        const itemInterval = 1500; // ms
+        let lastItemTime = Date.now();
+        let score = 100;
+        let lastUpdateTime = 0;
+        let startTime = Date.now();
+        
+        // Define the y-coordinate of the "no-go" line
+        const noGoLineY = canvas.height;
+
+        // Keyboard movement variables
+        let moveLeft = false;
+        let moveRight = false;
+        const playerSpeed = 5;
+
+        // Image variables for placeholders
+        const heroImageUrl = "Hero.png";
+        const enemyImageUrl = "villain.png";
+        const goodItemImageUrl = "Hero.png";
+
+        const heroImage = new Image();
+        heroImage.src = heroImageUrl;
+        let heroImageLoaded = false;
+        heroImage.onload = () => { heroImageLoaded = true; };
+        heroImage.onerror = () => { console.error('Hero image failed to load'); };
+
+        const enemyImage = new Image();
+        enemyImage.src = enemyImageUrl;
+        let enemyImageLoaded = false;
+        enemyImage.onload = () => { enemyImageLoaded = true; };
+        enemyImage.onerror = () => { console.error('Enemy image failed to load'); };
+
+        const goodItemImage = new Image();
+        goodItemImage.src = goodItemImageUrl;
+        let goodItemImageLoaded = false;
+        goodItemImage.onload = () => { goodItemImageLoaded = true; };
+        goodItemImage.onerror = () => { console.error('Good item image failed to load'); };
+
+
+        // Adaptive Canvas Size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth > 600 ? 600 : window.innerWidth;
+            canvas.height = window.innerHeight > 800 ? 800 : window.innerHeight;
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 100;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Game Functions
+        function drawPlayer() {
+            if (heroImageLoaded) {
+                ctx.drawImage(heroImage, player.x - 30, player.y - 30, 60, 60);
+            } else {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, 30, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const offset = 40;
+            for (let i = 0; i < player.armySize; i++) {
+                const angle = (i / player.armySize) * Math.PI * 2;
+                const x = player.x + offset * Math.cos(angle);
+                const y = player.y + offset * Math.sin(angle);
+                if (heroImageLoaded) {
+                     ctx.drawImage(heroImage, x - 15, y - 15, 30, 30);
+                } else {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(x - 5, y - 5, 10, 10);
+                }
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '16px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.fillText(player.armySize, player.x, player.y - 45);
+        }
+
+        function drawItems(items, color, type) {
+            items.forEach(item => {
+                if (item.type === 'good' && goodItemImageLoaded) {
+                    ctx.drawImage(goodItemImage, item.x, item.y, item.width, item.height);
+                } else if (item.type === 'bad' && enemyImageLoaded) {
+                    ctx.drawImage(enemyImage, item.x, item.y, item.width, item.height);
+                } else {
+                    ctx.fillStyle = (item.type === 'good') ? '#00ff00' : '#ff0000';
+                    ctx.fillRect(item.x, item.y, item.width, item.height);
+                }
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '16px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText(item.text, item.x + item.width / 2, item.y - 10);
+            });
+        }
+
+        function update() {
+            if (isGameOver) return;
+
+            // Handle keyboard movement
+            if (moveLeft) {
+                player.x -= playerSpeed;
+            }
+            if (moveRight) {
+                player.x += playerSpeed;
+            }
+            
+            // Keep player within the canvas
+            const playerWidth = 60;
+            if (player.x < playerWidth / 2) player.x = playerWidth / 2;
+            if (player.x > canvas.width - playerWidth / 2) player.x = canvas.width - playerWidth / 2;
+
+            // Update good items and handle collisions
+            goodItems = goodItems.filter(item => {
+                item.y += player.speed;
+                
+                // Collision detection with player
+                if (
+                    player.y - 30 < item.y + item.height &&
+                    player.y + 30 > item.y &&
+                    player.x - 30 < item.x + item.width &&
+                    player.x + 30 > item.x
+                ) {
+                    player.armySize += item.value_1;
+                    statusMessageEl.innerText = `ARMY INCREASED! (+${item.value_1})`;
+                    score += 10;
+                    armySizeEl.innerText = player.armySize;
+                    scoreEl.innerText = score;
+                    return false; // Remove the item
+                }
+                
+                // Remove if off-screen
+                return item.y < canvas.height + 50;
+            });
+
+            // Update bad items and handle collisions/passing the line
+            badItems = badItems.filter(item => {
+                item.y += player.speed * 0.9;
+                
+                // Collision detection with player
+                if (
+                    player.y - 30 < item.y + item.height &&
+                    player.y + 30 > item.y &&
+                    player.x - 30 < item.x + item.width &&
+                    player.x + 30 > item.x
+                ) {
+                    player.armySize -= item.value_2;
+                    statusMessageEl.innerText = `ARMY DECREASED! (-${item.value_2})`;
+                    if (player.armySize <= 0) {
+                        endGame();
+                    }
+                    armySizeEl.innerText = player.armySize;
+                    scoreEl.innerText = score;
+                    return false; // Remove the item
+                }
+                
+                // Check for villains reaching the red line
+                if (item.y + item.height > canvas.height) {
+                    score -= 40;
+                    scoreEl.innerText = score;
+                    if (score <= 0) {
+                        endGame();
+                    }
+                    return false; // Remove the item
+                }
+
+                return true; // Keep the item
+            });
+        }
+
+        function updateTime() {
+            const timeElapsed = Math.floor((Date.now() - startTime) / 1000);
+            timeEl.innerText = `${timeElapsed}s`;
+        }
+
+        function endGame() {
+            isGameOver = true;
+            const timeElapsed = Math.floor((Date.now() - startTime) / 1000);
+            finalStatsEl.innerHTML = `FINAL ARMY: ${player.armySize}<br>FINAL SCORE: ${score}<br>TIME SURVIVED: ${timeElapsed}s`;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        function restartGame() {
+            isGameOver = false;
+            player.armySize = 1;
+            player.x = canvas.width / 2;
+            goodItems = [];
+            badItems = [];
+            score = 100;
+            startTime = Date.now();
+            armySizeEl.innerText = player.armySize;
+            scoreEl.innerText = score;
+            statusMessageEl.innerText = "CHOOSE YOUR PATH!";
+            gameOverScreen.style.display = 'none';
+            lastItemTime = Date.now();
+            spawnItems();
+        }
+
+        function spawnItems() {
+            const laneWidth = canvas.width / 2;
+            const itemWidth = 60;
+            const itemHeight = 60;
+            
+            const goodValue = Math.floor(Math.random() * 7) + 1;
+            const badValue = Math.floor(Math.random() * 9) + 1;
+
+            goodItems.push({
+                x: Math.random() * (laneWidth - itemWidth),
+                y: -itemHeight,
+                width: itemWidth,
+                height: itemHeight,
+                value_1: goodValue,
+                text: `+${goodValue}`,
+                type: 'good'
+            });
+
+            badItems.push({
+                x: laneWidth + Math.random() * (laneWidth - itemWidth),
+                y: -itemHeight,
+                width: itemWidth,
+                height: itemHeight,
+                value_2: badValue,
+                text: `-${badValue}`,
+                type: 'bad'
+            });
+        }
+
+        // Event listeners for keyboard input
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                moveLeft = true;
+            }
+            if (e.key === 'ArrowRight') {
+                moveRight = true;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') {
+                moveLeft = false;
+            }
+            if (e.key === 'ArrowRight') {
+                moveRight = false;
+            }
+        });
+
+        // Event listeners for mouse and touch input
+        canvas.addEventListener('mousemove', (e) => {
+            player.x = e.clientX - canvas.offsetLeft;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            player.x = e.touches[0].clientX - canvas.offsetLeft;
+        });
+
+        restartButton.addEventListener('click', restartGame);
+        
+        function gameLoop() {
+            const currentTime = Date.now();
+            if (currentTime - lastUpdateTime > 1000 / 60) {
+                lastUpdateTime = currentTime;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+               
+
+                // Draw the thick "no-go" line at the bottom
+                ctx.fillStyle = '#ff4444';
+                ctx.fillRect(0, canvas.height - 5, canvas.width, 5); 
+                
+                // Draw the "no-go" line text on top of the line
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText("GAME OVER ZONE", canvas.width / 2, canvas.height - 18);
+                
+                update();
+                drawItems(goodItems, '#00ff00', 'good');
+                drawItems(badItems, '#ff0000', 'bad');
+                drawPlayer();
+                
+                if (!isGameOver) {
+                    updateTime();
+                }
+                
+                // Add new items at intervals
+                if (currentTime - lastItemTime > itemInterval) {
+                    spawnItems();
+                    lastItemTime = currentTime;
+                }
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        window.onload = function() {
+            spawnItems();
+            gameLoop();
+        };
+    </script>
+</body>
+</html>
